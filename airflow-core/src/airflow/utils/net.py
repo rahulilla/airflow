@@ -54,3 +54,24 @@ def get_hostname():
     from airflow.configuration import conf
 
     return conf.getimport("core", "hostname_callable", fallback="airflow.utils.net.getfqdn")()
+
+
+def is_valid_hostname(hostname: str) -> bool:
+    """Return True if ``hostname`` is a syntactically valid DNS hostname.
+
+    A valid hostname is at most 253 characters and consists of dot-separated
+    labels, each 1-63 characters of letters, digits, or hyphens (not starting
+    or ending with a hyphen).
+    """
+    if not hostname or len(hostname) > 253:
+        return False
+    hostname = hostname.rstrip(".")
+    labels = hostname.split(".")
+    for label in labels:
+        if not 1 <= len(label) <= 63:
+            return False
+        if label.startswith("-") or label.endswith("-"):
+            return False
+        if not all(ch.isalnum() or ch == "-" for ch in label):
+            return False
+    return True
