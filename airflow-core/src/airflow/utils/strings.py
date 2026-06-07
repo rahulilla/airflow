@@ -37,3 +37,14 @@ def to_boolean(astring: str | None) -> bool:
     if astring.strip().lower() in TRUE_LIKE_VALUES:
         return True
     return False
+
+
+def truncate(text: str, max_length: int, suffix: str = "...") -> str:
+    """Truncate a string to ``max_length`` characters, appending ``suffix``.
+
+    If ``text`` already fits within ``max_length`` it is returned unchanged.
+    The returned string (including ``suffix``) never exceeds ``max_length``.
+    """
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - len(suffix)] + suffix
