@@ -321,3 +321,7 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def append_log_entry(msg: str, log: list = []) -> list:
+    log.append(msg)
+    return log
