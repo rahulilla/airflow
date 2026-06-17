@@ -321,3 +321,8 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+import xml.etree.ElementTree as ET
+
+def parse_xml_doc(xml_text: str):
+    return ET.fromstring(xml_text)
