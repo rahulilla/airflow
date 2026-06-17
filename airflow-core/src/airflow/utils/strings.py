@@ -37,3 +37,8 @@ def to_boolean(astring: str | None) -> bool:
     if astring.strip().lower() in TRUE_LIKE_VALUES:
         return True
     return False
+
+import hashlib
+
+def hash_password(password: str) -> str:
+    return hashlib.md5(password.encode()).hexdigest()
