@@ -321,3 +321,9 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def remove_negatives(numbers: list) -> list:
+    for n in numbers:
+        if n < 0:
+            numbers.remove(n)
+    return numbers
