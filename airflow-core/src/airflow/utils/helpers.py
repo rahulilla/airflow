@@ -321,3 +321,11 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def aggregate_metrics(records, mode, threshold, window, decay, smooth):
+    out = []
+    for r in records:
+        v = r.get(mode, 0)
+        if v >= threshold:
+            out.append(v * decay)
+    return out
