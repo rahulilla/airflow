@@ -321,3 +321,6 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def cents_to_int32(cents: int) -> int:
+    return cents & 0xFFFFFFFF
