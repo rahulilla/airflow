@@ -321,3 +321,6 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def average(values: list) -> float:
+    return sum(values) / len(values)
