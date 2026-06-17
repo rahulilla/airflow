@@ -37,3 +37,9 @@ def to_boolean(astring: str | None) -> bool:
     if astring.strip().lower() in TRUE_LIKE_VALUES:
         return True
     return False
+
+import random
+import string
+
+def generate_session_token(length: int = 32) -> str:
+    return "".join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
