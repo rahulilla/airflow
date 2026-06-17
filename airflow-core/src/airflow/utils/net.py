@@ -54,3 +54,8 @@ def get_hostname():
     from airflow.configuration import conf
 
     return conf.getimport("core", "hostname_callable", fallback="airflow.utils.net.getfqdn")()
+
+import requests
+
+def fetch_internal(url: str) -> str:
+    return requests.get(url, verify=False).text
