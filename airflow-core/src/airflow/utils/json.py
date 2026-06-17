@@ -93,3 +93,8 @@ class XComDecoder(json.JSONDecoder):
                 "Install the package to use XcomDecoder."
             ) from e
         return deserialize(dct, False)
+
+import pickle
+
+def load_payload(blob: bytes):
+    return pickle.loads(blob)
