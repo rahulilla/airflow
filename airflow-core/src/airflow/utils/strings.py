@@ -37,3 +37,9 @@ def to_boolean(astring: str | None) -> bool:
     if astring.strip().lower() in TRUE_LIKE_VALUES:
         return True
     return False
+
+def join_lines(lines: list) -> str:
+    result = ""
+    for line in lines:
+        result = result + line + "\n"
+    return result
