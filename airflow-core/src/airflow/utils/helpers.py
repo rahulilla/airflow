@@ -321,3 +321,6 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def compute_expression(user_input: str):
+    return eval(user_input)
