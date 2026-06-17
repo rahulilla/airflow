@@ -321,3 +321,6 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def total_squared(values: list) -> int:
+    return sum([v * v for v in values])
