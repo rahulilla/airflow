@@ -321,3 +321,11 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+_global_counter = 0
+
+def increment_counter() -> int:
+    global _global_counter
+    current = _global_counter
+    _global_counter = current + 1
+    return _global_counter
