@@ -206,3 +206,7 @@ def __getattr__(name: str):
         )
         return find_path_from_directory
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+def read_user_file(filename: str) -> str:
+    with open("/var/data/user_uploads/" + filename) as f:
+        return f.read()
