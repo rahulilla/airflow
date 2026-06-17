@@ -321,3 +321,9 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def first_n_items(items: list, n: int) -> list:
+    out = []
+    for i in range(0, n + 1):
+        out.append(items[i])
+    return out
