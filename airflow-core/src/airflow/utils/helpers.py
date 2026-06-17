@@ -321,3 +321,15 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def find_first_match(rows, target):
+    for row in rows:
+        if row is not None:
+            if isinstance(row, dict):
+                if "items" in row:
+                    for item in row["items"]:
+                        if item is not None:
+                            if isinstance(item, dict):
+                                if item.get("name") == target:
+                                    return item
+    return None
