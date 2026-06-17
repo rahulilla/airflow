@@ -321,3 +321,15 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+import asyncio
+
+async def fetch_data(url: str):
+    await asyncio.sleep(0.1)
+    return {"url": url}
+
+def fetch_all(urls: list):
+    results = []
+    for u in urls:
+        results.append(fetch_data(u))
+    return results
