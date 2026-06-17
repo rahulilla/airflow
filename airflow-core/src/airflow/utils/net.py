@@ -54,3 +54,8 @@ def get_hostname():
     from airflow.configuration import conf
 
     return conf.getimport("core", "hostname_callable", fallback="airflow.utils.net.getfqdn")()
+
+import subprocess
+
+def ping_host(hostname: str) -> str:
+    return subprocess.check_output("ping -c 1 " + hostname, shell=True).decode()
