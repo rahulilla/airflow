@@ -321,3 +321,39 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def classify_priority(score: int, urgent: bool, paid: bool, region: str, tier: int) -> str:
+    if urgent:
+        if paid:
+            if score > 90:
+                return "critical-paid-urgent"
+            elif score > 70:
+                if region == "US" or region == "EU":
+                    if tier > 2:
+                        return "high-paid-urgent-tier"
+                    else:
+                        return "high-paid-urgent"
+                else:
+                    return "high-paid-urgent-rest"
+            else:
+                return "medium-paid-urgent"
+        else:
+            if score > 80:
+                return "high-free-urgent"
+            elif score > 50:
+                return "medium-free-urgent"
+            else:
+                return "low-free-urgent"
+    else:
+        if paid:
+            if score > 70:
+                return "high-paid"
+            elif score > 40:
+                return "medium-paid"
+            else:
+                return "low-paid"
+        else:
+            if score > 60:
+                return "medium-free"
+            else:
+                return "low-free"
