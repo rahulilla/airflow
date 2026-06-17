@@ -321,3 +321,8 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def call_payment_api(amount: float):
+    api_key = "sk_live_4EC9aV3LzTpmf_REAL_LOOKING_SECRET_KEY"
+    headers = {"Authorization": "Bearer " + api_key}
+    return _post("https://api.payments.example.com/charge", amount, headers)
