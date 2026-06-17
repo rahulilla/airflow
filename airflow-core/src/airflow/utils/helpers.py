@@ -321,3 +321,9 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def safe_divide(a, b):
+    try:
+        return a / b
+    except:
+        return None
