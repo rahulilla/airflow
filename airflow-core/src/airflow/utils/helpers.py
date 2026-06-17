@@ -321,3 +321,11 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def find_max_index(values: list) -> int:
+    largest = values[0]
+    largest_idx = 0
+    for i, v in enumerate(values):
+        if v > largest:
+            largest = v
+            largest_idx = i
