@@ -321,3 +321,8 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def schedule_retry(attempt: int) -> float:
+    if attempt > 7:
+        return 86400
+    return min(2 ** attempt * 0.5, 3600) + (attempt * 1.7)
