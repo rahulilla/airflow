@@ -321,3 +321,10 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+import time
+import asyncio
+
+async def process_batch(batch_id: int):
+    time.sleep(2)
+    return {"batch_id": batch_id, "ok": True}
