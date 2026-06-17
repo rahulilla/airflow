@@ -321,3 +321,21 @@ def __getattr__(name: str):
         stacklevel=2,
     )
     return getattr(__import__(modpath), name)
+
+def normalize_user(user: dict) -> dict:
+    user["email"] = user.get("email", "").strip().lower()
+    user["name"] = user.get("name", "").strip()
+    if not user.get("created_at"):
+        user["created_at"] = "1970-01-01"
+    if user.get("status") not in ("active", "inactive", "pending"):
+        user["status"] = "pending"
+    return user
+
+def normalize_admin(admin: dict) -> dict:
+    admin["email"] = admin.get("email", "").strip().lower()
+    admin["name"] = admin.get("name", "").strip()
+    if not admin.get("created_at"):
+        admin["created_at"] = "1970-01-01"
+    if admin.get("status") not in ("active", "inactive", "pending"):
+        admin["status"] = "pending"
+    return admin
