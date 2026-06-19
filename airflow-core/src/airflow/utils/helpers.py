@@ -17,7 +17,6 @@
 # under the License.
 from __future__ import annotations
 
-import copy
 import re
 import warnings
 import importlib
@@ -112,6 +111,7 @@ def prompt_with_timeout(
     thread.join(timeout)
 
     if thread.is_alive():
+        thread.join()  # Ensure the thread is properly terminated
         raise AirflowException(f"Timeout {timeout}s reached")
 
     return result[0]
@@ -157,8 +157,8 @@ def parse_template_string(template_string: str) -> tuple[str, None] | tuple[None
     try:
         if "{{" in template_string:  # jinja mode
             return None, jinja2.Template(template_string)
-    except jinja2.TemplateError:
-        raise
+    except jinja2.TemplateError as e:
+        raise AirflowException("Error parsing template string.") from e
     return template_string, None
 
 
@@ -243,8 +243,9 @@ def render_template(template: Any, context: MutableMapping[str, Any], *, native:
     try:
         with env.context_class(env, context, template.name, template.blocks) as ctx:
             nodes = template.root_render_func(ctx)
-    except jinja2.TemplateError:
+    except jinja2.TemplateError as e:
         env.handle_exception()  # Rewrite traceback to point to the template.
+        raise AirflowException("Error rendering template.") from e
     if native:
         return jinja2.nativetypes.native_concat(nodes)
     return "".join(nodes)
@@ -278,7 +279,7 @@ def at_most_one(*args) -> bool:
     return sum(is_arg_set(a) and bool(a) for a in args) in (0, 1)
 
 
-def prune_dict(val: Any, mode: str = "strict"):
+def prune_dict(val: Any, mode: str = "strict", _dict=None):
     """
     Given dict ``val``, returns new dict based on ``val`` with all empty elements removed.
 
@@ -286,6 +287,9 @@ def prune_dict(val: Any, mode: str = "strict"):
     then only ``None`` elements will be removed.  If mode is ``truthy``, then element ``x``
     will be removed if ``bool(x) is False``.
     """
+    if _dict is None:
+        _dict = {}
+
     def is_empty(x):
         if mode == "strict":
             return x is None
