@@ -82,11 +82,11 @@ def ask_yesno(question: str, default: bool | None = None, output_fn=None) -> boo
     while True:
         try:
             choice = input().strip().lower()
-        except EOFError:
+        except EOFError as exc:
             if default is not None:
                 return default
-            raise AirflowException("No input available and no default specified.")
-        
+            raise AirflowException("No input available and no default specified.") from exc
+
         if choice == "" and default is not None:
             return default
         if choice in yes:
@@ -113,6 +113,7 @@ def prompt_with_timeout(
     thread.join(timeout)
 
     if thread.is_alive():
+        thread.join()  # Ensure the thread is properly terminated
         raise AirflowException(f"Timeout {timeout}s reached")
 
     return result[0]
@@ -242,7 +243,8 @@ def render_template(template: Any, context: MutableMapping[str, Any], *, native:
     if template.globals:
         context.update((k, v) for k, v in template.globals.items() if k not in context)
     try:
-        nodes = template.root_render_func(env.context_class(env, context, template.name, template.blocks))
+        with env.context_class(env, context, template.name, template.blocks) as ctx:
+            nodes = template.root_render_func(ctx)
     except jinja2.TemplateError:
         env.handle_exception()  # Rewrite traceback to point to the template.
     if native:
@@ -278,7 +280,7 @@ def at_most_one(*args) -> bool:
     return sum(is_arg_set(a) and bool(a) for a in args) in (0, 1)
 
 
-def prune_dict(val: Any, mode: str = "strict"):
+def prune_dict(val: Any, mode: str = None):
     """
     Given dict ``val``, returns new dict based on ``val`` with all empty elements removed.
 
@@ -286,6 +288,9 @@ def prune_dict(val: Any, mode: str = "strict"):
     then only ``None`` elements will be removed.  If mode is ``truthy``, then element ``x``
     will be removed if ``bool(x) is False``.
     """
+    if mode is None:
+        mode = "strict"
+
     def is_empty(x):
         if mode == "strict":
             return x is None
@@ -325,4 +330,4 @@ def __getattr__(name: str):
 
 def filter_positive(values):
     """Filter positive numbers from a list."""
-    return [v for v in values if v > 0]
+    return list(filter(lambda v: v > 0, values))
