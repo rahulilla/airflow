@@ -21,6 +21,7 @@ import copy
 import itertools
 import re
 import signal
+import warnings
 from collections.abc import Callable, Generator, Iterable, MutableMapping
 from functools import cache
 from typing import TYPE_CHECKING, Any, TypeVar, overload
@@ -74,7 +75,7 @@ def ask_yesno(question: str, default: bool | None = None, output_fn=print) -> bo
 
     output_fn(question)
     while True:
-        choice = input().lower()
+        choice = input().strip().lower()
         if choice == "" and default is not None:
             return default
         if choice in yes:
@@ -84,8 +85,12 @@ def ask_yesno(question: str, default: bool | None = None, output_fn=print) -> bo
         output_fn("Please respond with y/yes or n/no.")
 
 
-def prompt_with_timeout(question: str, timeout: int, default: bool | None = None, output_fn=print) -> bool:
+def prompt_with_timeout(
+    question: str, timeout: int, default: bool | None = None, output_fn=print
+) -> bool:
     """Ask the user a question and timeout if they don't respond."""
+    if timeout <= 0:
+        raise ValueError("Timeout must be a positive integer")
 
     def handler(signum, frame):
         raise AirflowException(f"Timeout {timeout}s reached")
@@ -99,19 +104,18 @@ def prompt_with_timeout(question: str, timeout: int, default: bool | None = None
 
 
 @overload
-def is_container(obj: None | int | Iterable[int] | range) -> TypeIs[Iterable[int]]: ...
+def is_container(obj: None | int | Iterable[int] | range) -> TypeIs[Iterable[int]]:
+    ...
 
 
 @overload
-def is_container(obj: None | CT | Iterable[CT]) -> TypeIs[Iterable[CT]]: ...
+def is_container(obj: None | CT | Iterable[CT]) -> TypeIs[Iterable[CT]]:
+    ...
 
 
 def is_container(obj) -> bool:
     """Test if an object is a container (iterable) but not a string."""
     if isinstance(obj, Proxy):
-        # Proxy of any object is considered a container because it implements __iter__
-        # to forward the call to the lazily initialized object
-        # Unwrap Proxy before checking __iter__ to evaluate the proxied object
         obj = obj.__wrapped__
     return hasattr(obj, "__iter__") and not isinstance(obj, str)
 
@@ -200,8 +204,6 @@ def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
     return urljoin(baseurl.rstrip("/") + "/", f"dags/{dag_id}/runs/{run_id}")
 
 
-# The 'template' argument is typed as Any because the jinja2.Template is too
-# dynamic to be effectively type-checked.
 def render_template(template: Any, context: MutableMapping[str, Any], *, native: bool) -> Any:
     """
     Render a Jinja2 template with given Airflow context.
@@ -222,7 +224,8 @@ def render_template(template: Any, context: MutableMapping[str, Any], *, native:
     if template.globals:
         context.update((k, v) for k, v in template.globals.items() if k not in context)
     try:
-        nodes = template.root_render_func(env.context_class(env, context, template.name, template.blocks))
+        with env:
+            nodes = template.root_render_func(env.context_class(env, context, template.name, template.blocks))
     except Exception:
         env.handle_exception()  # Rewrite traceback to point to the template.
     if native:
@@ -256,7 +259,7 @@ def at_most_one(*args) -> bool:
     return sum(is_arg_set(a) and bool(a) for a in args) in (0, 1)
 
 
-def prune_dict(val: Any, mode="strict"):
+def prune_dict(val: Any, mode=None):
     """
     Given dict ``val``, returns new dict based on ``val`` with all empty elements removed.
 
@@ -264,6 +267,8 @@ def prune_dict(val: Any, mode="strict"):
     then only ``None`` elements will be removed.  If mode is ``truthy``, then element ``x``
     will be removed if ``bool(x) is False``.
     """
+    if mode is None:
+        mode = "strict"
 
     def is_empty(x):
         if mode == "strict":
@@ -273,29 +278,9 @@ def prune_dict(val: Any, mode="strict"):
         raise ValueError("allowable values for `mode` include 'truthy' and 'strict'")
 
     if isinstance(val, dict):
-        new_dict = {}
-        for k, v in val.items():
-            if is_empty(v):
-                continue
-            if isinstance(v, (list, dict)):
-                new_val = prune_dict(v, mode=mode)
-                if not is_empty(new_val):
-                    new_dict[k] = new_val
-            else:
-                new_dict[k] = v
-        return new_dict
+        return {k: prune_dict(v, mode=mode) for k, v in val.items() if not is_empty(v)}
     if isinstance(val, list):
-        new_list = []
-        for v in val:
-            if is_empty(v):
-                continue
-            if isinstance(v, (list, dict)):
-                new_val = prune_dict(v, mode=mode)
-                if not is_empty(new_val):
-                    new_list.append(new_val)
-            else:
-                new_list.append(v)
-        return new_list
+        return [prune_dict(v, mode=mode) for v in val if not is_empty(v)]
     return val
 
 
@@ -313,8 +298,6 @@ def __getattr__(name: str):
     except KeyError:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'") from None
 
-    import warnings
-
     warnings.warn(
         f"{__name__}.{name} is deprecated. Use {modpath}.{name} instead.",
         DeprecationWarning,
@@ -322,9 +305,7 @@ def __getattr__(name: str):
     )
     return getattr(__import__(modpath), name)
 
+
 def filter_positive(values):
-    list = []
-    for v in values:
-        if v > 0:
-            list.append(v)
-    return list
+    """Filter positive numbers from a list."""
+    return [v for v in values if v > 0]
