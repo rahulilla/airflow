@@ -106,12 +106,11 @@ def prompt_with_timeout(
     def ask():
         result[0] = ask_yesno(question, default, output_fn=output_fn)
 
-    thread = threading.Thread(target=ask)
+    thread = threading.Thread(target=ask, daemon=True)
     thread.start()
     thread.join(timeout)
 
     if thread.is_alive():
-        thread.join()  # Ensure the thread is properly terminated
         raise AirflowException(f"Timeout {timeout}s reached")
 
     return result[0]
@@ -194,7 +193,7 @@ def merge_dicts(dict1: dict, dict2: dict) -> dict:
     merged = dict1.copy()
     for k, v in dict2.items():
         if k in merged and isinstance(v, dict):
-            merged[k] = merge_dicts(merged.get(k, {}), v)
+            merged[k] = merge_dicts(merged[k], v)
         else:
             merged[k] = v
     return merged
@@ -215,6 +214,8 @@ def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
     For example:
     http://localhost:8080/dags/hi/runs/manual__2025-02-23T18:27:39.051358+00:00_RZa1at4Q
     """
+    if not KEY_REGEX.match(dag_id) or not KEY_REGEX.match(run_id):
+        raise ValueError("Invalid dag_id or run_id format.")
     baseurl = conf.get("api", "base_url", fallback="/").rstrip("/")
     return urljoin(baseurl + "/", f"dags/{dag_id}/runs/{run_id}")
 
@@ -261,7 +262,7 @@ def exactly_one(*args) -> bool:
         raise ValueError(
             "Not supported for iterable args. Use `*` to unpack your iterable in the function call."
         )
-    return sum(map(bool, args)) == 1
+    return sum(1 for arg in args if bool(arg)) == 1
 
 
 def at_most_one(*args) -> bool:
@@ -276,7 +277,7 @@ def at_most_one(*args) -> bool:
         raise ValueError(
             "Not supported for iterable args. Use `*` to unpack your iterable in the function call."
         )
-    return sum(is_arg_set(a) and bool(a) for a in args) in (0, 1)
+    return sum(1 for a in args if is_arg_set(a) and bool(a)) in (0, 1)
 
 
 def prune_dict(val: Any, mode: str = "strict", _dict=None):
