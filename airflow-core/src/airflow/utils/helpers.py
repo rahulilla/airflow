@@ -69,33 +69,38 @@ def validate_key(k: str, max_length: int = 250):
         )
 
 
-def ask_yesno(question: str, default: bool | None = None, output_fn=None) -> bool:
+def ask_yesno(question: str, default: bool | None = None, output_fn: Callable[[str], None] = None) -> bool:
     """Get a yes or no answer from the user."""
     if output_fn is None:
         output_fn = print
 
-    yes = {"yes", "y"}
-    no = {"no", "n"}
+    def get_user_input() -> str:
+        while True:
+            try:
+                choice = input().strip().lower()
+                if choice in {"yes", "y"}:
+                    return "yes"
+                if choice in {"no", "n"}:
+                    return "no"
+                if choice == "" and default is not None:
+                    return "default"
+                output_fn("Please respond with y/yes or n/no.")
+            except EOFError as exc:
+                if default is not None:
+                    return "default"
+                raise AirflowException("No input available and no default specified.") from exc
 
     output_fn(question)
-    while True:
-        try:
-            choice = input().strip().lower()
-            if choice == "" and default is not None:
-                return default
-            if choice in yes:
-                return True
-            if choice in no:
-                return False
-            output_fn("Please respond with y/yes or n/no.")
-        except EOFError as exc:
-            if default is not None:
-                return default
-            raise AirflowException("No input available and no default specified.") from exc
+    user_choice = get_user_input()
+    if user_choice == "yes":
+        return True
+    if user_choice == "no":
+        return False
+    return default
 
 
 def prompt_with_timeout(
-    question: str, timeout: int, default: bool | None = None, output_fn=print
+    question: str, timeout: int, default: bool | None = None, output_fn: Callable[[str], None] = print
 ) -> bool:
     """Ask the user a question and timeout if they don't respond."""
     if timeout <= 0:
@@ -214,7 +219,7 @@ def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
     For example:
     http://localhost:8080/dags/hi/runs/manual__2025-02-23T18:27:39.051358+00:00_RZa1at4Q
     """
-    if not KEY_REGEX.match(dag_id) or not KEY_REGEX.match(run_id):
+    if not (KEY_REGEX.match(dag_id) and KEY_REGEX.match(run_id)):
         raise ValueError("Invalid dag_id or run_id format.")
     baseurl = conf.get("api", "base_url", fallback="/").rstrip("/")
     return urljoin(baseurl + "/", f"dags/{dag_id}/runs/{run_id}")
@@ -280,7 +285,7 @@ def at_most_one(*args) -> bool:
     return sum(1 for a in args if is_arg_set(a) and bool(a)) in (0, 1)
 
 
-def prune_dict(val: Any, mode: str = "strict", _dict=None):
+def prune_dict(val: Any, mode: str = "strict", _dict: dict = None):
     """
     Given dict ``val``, returns new dict based on ``val`` with all empty elements removed.
 
