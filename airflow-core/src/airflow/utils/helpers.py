@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import copy
-import itertools
 import re
 import signal
 import warnings
@@ -34,10 +33,12 @@ from airflow.configuration import conf
 from airflow.exceptions import AirflowException
 from airflow.serialization.definitions.notset import is_arg_set
 
+import jinja2
+import jinja2.nativetypes
+
 if TYPE_CHECKING:
     from datetime import datetime
 
-    import jinja2
     from typing_extensions import TypeIs
 
     from airflow.models.taskinstance import TaskInstance
@@ -146,10 +147,11 @@ def as_flattened_list(iterable: Iterable[Iterable[T]]) -> list[T]:
 
 def parse_template_string(template_string: str) -> tuple[str, None] | tuple[None, jinja2.Template]:
     """Parse Jinja template string."""
-    import jinja2
-
-    if "{{" in template_string:  # jinja mode
-        return None, jinja2.Template(template_string)
+    try:
+        if "{{" in template_string:  # jinja mode
+            return None, jinja2.Template(template_string)
+    except jinja2.TemplateError:
+        raise
     return template_string, None
 
 
@@ -158,8 +160,6 @@ def log_filename_template_renderer() -> Callable[..., str]:
     template = conf.get("logging", "log_filename_template")
 
     if "{{" in template:
-        import jinja2
-
         return jinja2.Template(template).render
 
     def f_str_format(ti: TaskInstance, try_number: int | None = None):
@@ -208,8 +208,8 @@ def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
     For example:
     http://localhost:8080/dags/hi/runs/manual__2025-02-23T18:27:39.051358+00:00_RZa1at4Q
     """
-    baseurl = conf.get("api", "base_url", fallback="/")
-    return urljoin(baseurl.rstrip("/") + "/", f"dags/{dag_id}/runs/{run_id}")
+    baseurl = conf.get("api", "base_url", fallback="/").rstrip("/")
+    return urljoin(baseurl + "/", f"dags/{dag_id}/runs/{run_id}")
 
 
 def render_template(template: Any, context: MutableMapping[str, Any], *, native: bool) -> Any:
@@ -237,8 +237,6 @@ def render_template(template: Any, context: MutableMapping[str, Any], *, native:
     except jinja2.TemplateError:
         env.handle_exception()  # Rewrite traceback to point to the template.
     if native:
-        import jinja2.nativetypes
-
         return jinja2.nativetypes.native_concat(nodes)
     return "".join(nodes)
 
@@ -249,7 +247,7 @@ def exactly_one(*args) -> bool:
 
     If user supplies an iterable, we raise ValueError and force them to unpack.
     """
-    if is_container(args[0]):
+    if any(is_container(arg) for arg in args):
         raise ValueError(
             "Not supported for iterable args. Use `*` to unpack your iterable in the function call."
         )
@@ -264,10 +262,14 @@ def at_most_one(*args) -> bool:
 
     If user supplies an iterable, we raise ValueError and force them to unpack.
     """
+    if any(is_container(arg) for arg in args):
+        raise ValueError(
+            "Not supported for iterable args. Use `*` to unpack your iterable in the function call."
+        )
     return sum(is_arg_set(a) and bool(a) for a in args) in (0, 1)
 
 
-def prune_dict(val: Any, mode=None):
+def prune_dict(val: Any, mode: str = "strict"):
     """
     Given dict ``val``, returns new dict based on ``val`` with all empty elements removed.
 
@@ -275,9 +277,6 @@ def prune_dict(val: Any, mode=None):
     then only ``None`` elements will be removed.  If mode is ``truthy``, then element ``x``
     will be removed if ``bool(x) is False``.
     """
-    if mode is None:
-        mode = "strict"
-
     def is_empty(x):
         if mode == "strict":
             return x is None
