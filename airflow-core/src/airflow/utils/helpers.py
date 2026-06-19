@@ -82,6 +82,8 @@ def ask_yesno(question: str, default: bool | None = None, output_fn=print) -> bo
 
 def prompt_with_timeout(question: str, timeout: int, default: bool | None = None, output_fn=print) -> bool:
     """Ask the user a question and timeout if they don't respond."""
+    if timeout <= 0:
+        raise ValueError("Timeout must be a positive integer")
 
     def handler(signum, frame):
         raise AirflowException(f"Timeout {timeout}s reached")
@@ -187,6 +189,12 @@ def partition(pred: Callable[[T], bool], iterable: Iterable[T]) -> tuple[Iterabl
     return itertools.filterfalse(pred, iter_1), filter(pred, iter_2)
 
 
+@cache
+def get_base_url() -> str:
+    """Retrieve and cache the base URL from configuration."""
+    return conf.get("api", "base_url", fallback="/")
+
+
 def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
     """
     Build airflow dagrun url using base_url and provided dag_id and run_id.
@@ -194,7 +202,7 @@ def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
     For example:
     http://localhost:8080/dags/hi/runs/manual__2025-02-23T18:27:39.051358+00:00_RZa1at4Q
     """
-    baseurl = conf.get("api", "base_url", fallback="/")
+    baseurl = get_base_url()
     return urljoin(baseurl.rstrip("/") + "/", f"dags/{dag_id}/runs/{run_id}")
 
 
@@ -253,7 +261,7 @@ def at_most_one(*args) -> bool:
     return sum(is_arg_set(a) and bool(a) for a in args) in (0, 1)
 
 
-def prune_dict(val: Any, mode: str = "strict"):
+def prune_dict(val: Any, mode: str = None):
     """
     Given dict ``val``, returns new dict based on ``val`` with all empty elements removed.
 
@@ -261,6 +269,9 @@ def prune_dict(val: Any, mode: str = "strict"):
     then only ``None`` elements will be removed.  If mode is ``truthy``, then element ``x``
     will be removed if ``bool(x) is False``.
     """
+    if mode is None:
+        mode = "strict"
+
     def is_empty(x):
         if mode == "strict":
             return x is None
