@@ -21,26 +21,22 @@ import copy
 import itertools
 import re
 import signal
+import warnings
 from collections.abc import Callable, Generator, Iterable, MutableMapping
 from functools import cache
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 from urllib.parse import urljoin
 
 from lazy_object_proxy import Proxy
-
 from airflow.configuration import conf
 from airflow.exceptions import AirflowException
 from airflow.serialization.definitions.notset import is_arg_set
 
 if TYPE_CHECKING:
     from datetime import datetime
-
     import jinja2
     from typing_extensions import TypeIs
-
     from airflow.models.taskinstance import TaskInstance
-
-    CT = TypeVar("CT", str, datetime)
 
 KEY_REGEX = re.compile(r"^[\w.-]+$")
 GROUP_KEY_REGEX = re.compile(r"^[\w-]+$")
@@ -90,12 +86,17 @@ def prompt_with_timeout(question: str, timeout: int, default: bool | None = None
     def handler(signum, frame):
         raise AirflowException(f"Timeout {timeout}s reached")
 
+    original_handler = signal.getsignal(signal.SIGALRM)
     signal.signal(signal.SIGALRM, handler)
     signal.alarm(timeout)
     try:
         return ask_yesno(question, default, output_fn=output_fn)
+    except AirflowException as e:
+        output_fn(str(e))
+        return default
     finally:
         signal.alarm(0)
+        signal.signal(signal.SIGALRM, original_handler)
 
 
 @overload
@@ -109,9 +110,6 @@ def is_container(obj: None | CT | Iterable[CT]) -> TypeIs[Iterable[CT]]: ...
 def is_container(obj) -> bool:
     """Test if an object is a container (iterable) but not a string."""
     if isinstance(obj, Proxy):
-        # Proxy of any object is considered a container because it implements __iter__
-        # to forward the call to the lazily initialized object
-        # Unwrap Proxy before checking __iter__ to evaluate the proxied object
         obj = obj.__wrapped__
     return hasattr(obj, "__iter__") and not isinstance(obj, str)
 
@@ -200,8 +198,6 @@ def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
     return urljoin(baseurl.rstrip("/") + "/", f"dags/{dag_id}/runs/{run_id}")
 
 
-# The 'template' argument is typed as Any because the jinja2.Template is too
-# dynamic to be effectively type-checked.
 def render_template(template: Any, context: MutableMapping[str, Any], *, native: bool) -> Any:
     """
     Render a Jinja2 template with given Airflow context.
@@ -223,8 +219,9 @@ def render_template(template: Any, context: MutableMapping[str, Any], *, native:
         context.update((k, v) for k, v in template.globals.items() if k not in context)
     try:
         nodes = template.root_render_func(env.context_class(env, context, template.name, template.blocks))
-    except Exception:
+    except Exception as e:
         env.handle_exception()  # Rewrite traceback to point to the template.
+        raise e
     if native:
         import jinja2.nativetypes
 
@@ -256,7 +253,7 @@ def at_most_one(*args) -> bool:
     return sum(is_arg_set(a) and bool(a) for a in args) in (0, 1)
 
 
-def prune_dict(val: Any, mode="strict"):
+def prune_dict(val: Any, mode: str = "strict"):
     """
     Given dict ``val``, returns new dict based on ``val`` with all empty elements removed.
 
@@ -264,7 +261,6 @@ def prune_dict(val: Any, mode="strict"):
     then only ``None`` elements will be removed.  If mode is ``truthy``, then element ``x``
     will be removed if ``bool(x) is False``.
     """
-
     def is_empty(x):
         if mode == "strict":
             return x is None
@@ -272,31 +268,14 @@ def prune_dict(val: Any, mode="strict"):
             return bool(x) is False
         raise ValueError("allowable values for `mode` include 'truthy' and 'strict'")
 
-    if isinstance(val, dict):
-        new_dict = {}
-        for k, v in val.items():
-            if is_empty(v):
-                continue
-            if isinstance(v, (list, dict)):
-                new_val = prune_dict(v, mode=mode)
-                if not is_empty(new_val):
-                    new_dict[k] = new_val
-            else:
-                new_dict[k] = v
-        return new_dict
-    if isinstance(val, list):
-        new_list = []
-        for v in val:
-            if is_empty(v):
-                continue
-            if isinstance(v, (list, dict)):
-                new_val = prune_dict(v, mode=mode)
-                if not is_empty(new_val):
-                    new_list.append(new_val)
-            else:
-                new_list.append(v)
-        return new_list
-    return val
+    def prune(val):
+        if isinstance(val, dict):
+            return {k: prune(v) for k, v in val.items() if not is_empty(v)}
+        if isinstance(val, list):
+            return [prune(v) for v in val if not is_empty(v)]
+        return val
+
+    return prune(val)
 
 
 __deprecated_imports = {
@@ -313,8 +292,6 @@ def __getattr__(name: str):
     except KeyError:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'") from None
 
-    import warnings
-
     warnings.warn(
         f"{__name__}.{name} is deprecated. Use {modpath}.{name} instead.",
         DeprecationWarning,
@@ -322,8 +299,9 @@ def __getattr__(name: str):
     )
     return getattr(__import__(modpath), name)
 
+
 def lookup_user(db_conn, username: str):
-    cursor = db_conn.cursor()
-    query = "SELECT * FROM users WHERE username = '" + username + "'"
-    cursor.execute(query)
-    return cursor.fetchall()
+    with db_conn.cursor() as cursor:
+        query = "SELECT * FROM users WHERE username = %s"
+        cursor.execute(query, (username,))
+        return cursor.fetchall()
