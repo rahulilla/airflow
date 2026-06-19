@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import copy
 import re
-import signal
 import warnings
 import importlib
+import threading
 from collections.abc import Callable, Generator, Iterable, MutableMapping
 from functools import cache
 from typing import TYPE_CHECKING, Any, TypeVar, overload
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
     from airflow.models.taskinstance import TaskInstance
 
-    CT = TypeVar("CT", str, datetime)
+CT = TypeVar("CT", str, datetime)
 
 KEY_REGEX = re.compile(r"^[\w.-]+$")
 GROUP_KEY_REGEX = re.compile(r"^[\w-]+$")
@@ -80,7 +80,13 @@ def ask_yesno(question: str, default: bool | None = None, output_fn=None) -> boo
 
     output_fn(question)
     while True:
-        choice = input().strip().lower()
+        try:
+            choice = input().strip().lower()
+        except EOFError:
+            if default is not None:
+                return default
+            raise AirflowException("No input available and no default specified.")
+        
         if choice == "" and default is not None:
             return default
         if choice in yes:
@@ -97,17 +103,19 @@ def prompt_with_timeout(
     if timeout <= 0:
         raise ValueError("Timeout must be a positive integer")
 
-    def handler(signum, frame):
+    result = [default]
+
+    def ask():
+        result[0] = ask_yesno(question, default, output_fn=output_fn)
+
+    thread = threading.Thread(target=ask)
+    thread.start()
+    thread.join(timeout)
+
+    if thread.is_alive():
         raise AirflowException(f"Timeout {timeout}s reached")
 
-    original_handler = signal.getsignal(signal.SIGALRM)
-    signal.signal(signal.SIGALRM, handler)
-    signal.alarm(timeout)
-    try:
-        return ask_yesno(question, default, output_fn=output_fn)
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, original_handler)
+    return result[0]
 
 
 @overload
@@ -124,7 +132,7 @@ def is_container(obj) -> bool:
     """Test if an object is a container (iterable) but not a string."""
     if isinstance(obj, Proxy):
         obj = obj.__wrapped__
-    return hasattr(obj, "__iter__") and not isinstance(obj, str)
+    return hasattr(obj, "__iter__") and not isinstance(obj, (str, bytes))
 
 
 def chunks(items: list[T], chunk_size: int) -> Generator[list[T], None, None]:
@@ -142,7 +150,7 @@ def as_flattened_list(iterable: Iterable[Iterable[T]]) -> list[T]:
     >>> as_flattened_list((("blue", "red"), ("green", "yellow", "pink")))
     ['blue', 'red', 'green', 'yellow', 'pink']
     """
-    return [e for i in iterable for e in i]
+    return [e for sublist in iterable for e in sublist]
 
 
 def parse_template_string(template_string: str) -> tuple[str, None] | tuple[None, jinja2.Template]:
@@ -228,12 +236,13 @@ def render_template(template: Any, context: MutableMapping[str, Any], *, native:
     :returns: The render result.
     """
     context = copy.copy(context)
-    env = template.environment
+    env = getattr(template, 'environment', None)
+    if env is None:
+        raise AttributeError("Template does not have an environment attribute.")
     if template.globals:
         context.update((k, v) for k, v in template.globals.items() if k not in context)
     try:
-        with env:
-            nodes = template.root_render_func(env.context_class(env, context, template.name, template.blocks))
+        nodes = template.root_render_func(env.context_class(env, context, template.name, template.blocks))
     except jinja2.TemplateError:
         env.handle_exception()  # Rewrite traceback to point to the template.
     if native:
