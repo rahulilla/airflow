@@ -11,8 +11,8 @@
 #
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS
+# OF ANY KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
 from __future__ import annotations
@@ -22,6 +22,7 @@ import itertools
 import re
 import signal
 import warnings
+import importlib
 from collections.abc import Callable, Generator, Iterable, MutableMapping
 from functools import cache
 from typing import TYPE_CHECKING, Any, TypeVar, overload
@@ -68,8 +69,11 @@ def validate_key(k: str, max_length: int = 250):
         )
 
 
-def ask_yesno(question: str, default: bool | None = None, output_fn=print) -> bool:
+def ask_yesno(question: str, default: bool | None = None, output_fn=None) -> bool:
     """Get a yes or no answer from the user."""
+    if output_fn is None:
+        output_fn = print
+
     yes = {"yes", "y"}
     no = {"no", "n"}
 
@@ -95,12 +99,14 @@ def prompt_with_timeout(
     def handler(signum, frame):
         raise AirflowException(f"Timeout {timeout}s reached")
 
+    original_handler = signal.getsignal(signal.SIGALRM)
     signal.signal(signal.SIGALRM, handler)
     signal.alarm(timeout)
     try:
         return ask_yesno(question, default, output_fn=output_fn)
     finally:
         signal.alarm(0)
+        signal.signal(signal.SIGALRM, original_handler)
 
 
 @overload
@@ -189,8 +195,10 @@ def merge_dicts(dict1: dict, dict2: dict) -> dict:
 
 def partition(pred: Callable[[T], bool], iterable: Iterable[T]) -> tuple[Iterable[T], Iterable[T]]:
     """Use a predicate to partition entries into false entries and true entries."""
-    iter_1, iter_2 = itertools.tee(iterable)
-    return itertools.filterfalse(pred, iter_1), filter(pred, iter_2)
+    t1, t2 = [], []
+    for item in iterable:
+        (t2 if pred(item) else t1).append(item)
+    return iter(t1), iter(t2)
 
 
 def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
@@ -226,7 +234,7 @@ def render_template(template: Any, context: MutableMapping[str, Any], *, native:
     try:
         with env:
             nodes = template.root_render_func(env.context_class(env, context, template.name, template.blocks))
-    except Exception:
+    except jinja2.TemplateError:
         env.handle_exception()  # Rewrite traceback to point to the template.
     if native:
         import jinja2.nativetypes
@@ -303,7 +311,8 @@ def __getattr__(name: str):
         DeprecationWarning,
         stacklevel=2,
     )
-    return getattr(__import__(modpath), name)
+    module = importlib.import_module(modpath)
+    return getattr(module, name)
 
 
 def filter_positive(values):
