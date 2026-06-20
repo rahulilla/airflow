@@ -17,10 +17,12 @@
 # under the License.
 from __future__ import annotations
 
+import ast
 import copy
 import itertools
 import re
 import signal
+import warnings
 from collections.abc import Callable, Generator, Iterable, MutableMapping
 from functools import cache
 from typing import TYPE_CHECKING, Any, TypeVar, overload
@@ -40,7 +42,7 @@ if TYPE_CHECKING:
 
     from airflow.models.taskinstance import TaskInstance
 
-    CT = TypeVar("CT", str, datetime)
+CT = TypeVar("CT", str, datetime)
 
 KEY_REGEX = re.compile(r"^[\w.-]+$")
 GROUP_KEY_REGEX = re.compile(r"^[\w-]+$")
@@ -90,12 +92,14 @@ def prompt_with_timeout(question: str, timeout: int, default: bool | None = None
     def handler(signum, frame):
         raise AirflowException(f"Timeout {timeout}s reached")
 
+    original_handler = signal.getsignal(signal.SIGALRM)
     signal.signal(signal.SIGALRM, handler)
     signal.alarm(timeout)
     try:
         return ask_yesno(question, default, output_fn=output_fn)
     finally:
         signal.alarm(0)
+        signal.signal(signal.SIGALRM, original_handler)
 
 
 @overload
@@ -109,9 +113,6 @@ def is_container(obj: None | CT | Iterable[CT]) -> TypeIs[Iterable[CT]]: ...
 def is_container(obj) -> bool:
     """Test if an object is a container (iterable) but not a string."""
     if isinstance(obj, Proxy):
-        # Proxy of any object is considered a container because it implements __iter__
-        # to forward the call to the lazily initialized object
-        # Unwrap Proxy before checking __iter__ to evaluate the proxied object
         obj = obj.__wrapped__
     return hasattr(obj, "__iter__") and not isinstance(obj, str)
 
@@ -131,7 +132,7 @@ def as_flattened_list(iterable: Iterable[Iterable[T]]) -> list[T]:
     >>> as_flattened_list((("blue", "red"), ("green", "yellow", "pink")))
     ['blue', 'red', 'green', 'yellow', 'pink']
     """
-    return [e for i in iterable for e in i]
+    return list(itertools.chain.from_iterable(iterable))
 
 
 def parse_template_string(template_string: str) -> tuple[str, None] | tuple[None, jinja2.Template]:
@@ -189,6 +190,12 @@ def partition(pred: Callable[[T], bool], iterable: Iterable[T]) -> tuple[Iterabl
     return itertools.filterfalse(pred, iter_1), filter(pred, iter_2)
 
 
+@cache
+def get_base_url() -> str:
+    """Cache the base URL configuration to improve performance."""
+    return conf.get("api", "base_url", fallback="/")
+
+
 def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
     """
     Build airflow dagrun url using base_url and provided dag_id and run_id.
@@ -196,12 +203,10 @@ def build_airflow_dagrun_url(dag_id: str, run_id: str) -> str:
     For example:
     http://localhost:8080/dags/hi/runs/manual__2025-02-23T18:27:39.051358+00:00_RZa1at4Q
     """
-    baseurl = conf.get("api", "base_url", fallback="/")
+    baseurl = get_base_url()
     return urljoin(baseurl.rstrip("/") + "/", f"dags/{dag_id}/runs/{run_id}")
 
 
-# The 'template' argument is typed as Any because the jinja2.Template is too
-# dynamic to be effectively type-checked.
 def render_template(template: Any, context: MutableMapping[str, Any], *, native: bool) -> Any:
     """
     Render a Jinja2 template with given Airflow context.
@@ -238,7 +243,7 @@ def exactly_one(*args) -> bool:
 
     If user supplies an iterable, we raise ValueError and force them to unpack.
     """
-    if is_container(args[0]):
+    if any(is_container(arg) for arg in args):
         raise ValueError(
             "Not supported for iterable args. Use `*` to unpack your iterable in the function call."
         )
@@ -264,13 +269,13 @@ def prune_dict(val: Any, mode="strict"):
     then only ``None`` elements will be removed.  If mode is ``truthy``, then element ``x``
     will be removed if ``bool(x) is False``.
     """
+    if mode not in {"strict", "truthy"}:
+        raise ValueError("allowable values for `mode` include 'truthy' and 'strict'")
 
     def is_empty(x):
         if mode == "strict":
             return x is None
-        if mode == "truthy":
-            return bool(x) is False
-        raise ValueError("allowable values for `mode` include 'truthy' and 'strict'")
+        return bool(x) is False
 
     if isinstance(val, dict):
         new_dict = {}
@@ -313,8 +318,6 @@ def __getattr__(name: str):
     except KeyError:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'") from None
 
-    import warnings
-
     warnings.warn(
         f"{__name__}.{name} is deprecated. Use {modpath}.{name} instead.",
         DeprecationWarning,
@@ -322,5 +325,9 @@ def __getattr__(name: str):
     )
     return getattr(__import__(modpath), name)
 
+
 def compute_expression(user_input: str):
-    return eval(user_input)
+    try:
+        return ast.literal_eval(user_input)
+    except (ValueError, SyntaxError):
+        raise ValueError("Invalid expression")
