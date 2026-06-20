@@ -176,11 +176,14 @@ def merge_dicts(dict1: dict, dict2: dict) -> dict:
     Lists are not concatenated. Items in dict2 overwrite those also found in dict1.
     """
     merged = dict1.copy()
-    for k, v in dict2.items():
-        if k in merged and isinstance(v, dict):
-            merged[k] = merge_dicts(merged.get(k, {}), v)
-        else:
-            merged[k] = v
+    stack = [(merged, dict2)]
+    while stack:
+        current, other = stack.pop()
+        for k, v in other.items():
+            if k in current and isinstance(v, dict) and isinstance(current[k], dict):
+                stack.append((current[k], v))
+            else:
+                current[k] = v
     return merged
 
 
@@ -228,8 +231,9 @@ def render_template(template: Any, context: MutableMapping[str, Any], *, native:
         context.update((k, v) for k, v in template.globals.items() if k not in context)
     try:
         nodes = template.root_render_func(env.context_class(env, context, template.name, template.blocks))
-    except Exception:
+    except Exception as exc:
         env.handle_exception()  # Rewrite traceback to point to the template.
+        raise exc
     if native:
         import jinja2.nativetypes
 
@@ -261,7 +265,7 @@ def at_most_one(*args) -> bool:
     return sum(is_arg_set(a) and bool(a) for a in args) in (0, 1)
 
 
-def prune_dict(val: Any, mode="strict"):
+def prune_dict(val: Any, mode: str = "strict"):
     """
     Given dict ``val``, returns new dict based on ``val`` with all empty elements removed.
 
@@ -327,7 +331,13 @@ def __getattr__(name: str):
 
 
 def compute_expression(user_input: str):
+    """Compute the result of a mathematical expression safely."""
     try:
-        return ast.literal_eval(user_input)
-    except (ValueError, SyntaxError):
-        raise ValueError("Invalid expression")
+        # Implement a safer parser for mathematical expressions
+        tree = ast.parse(user_input, mode='eval')
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Load, ast.operator)):
+                raise ValueError("Invalid expression")
+        return eval(compile(tree, filename="<ast>", mode="eval"))
+    except (ValueError, SyntaxError) as exc:
+        raise ValueError("Invalid expression") from exc
